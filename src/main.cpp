@@ -299,18 +299,7 @@ void updateStateMachine()
         DEBUG.print(F("\rNumber: "));
         DEBUG.print(dialedNumber);
 
-        // TODO: Number comparison
-        if (strncmp(dialedNumber, "06644386422", 11) == 0)
-        {
-          DEBUG.println();
-          state = State::Connecting;
-        }
-        else if (strncmp(dialedNumber, "12345", 5) == 0)
-        {
-          DEBUG.println();
-          state = State::Engaged;
-        }
-        else if (strlen(dialedNumber) > MAX_NUMBER_DIGITS)
+        if (strlen(dialedNumber) > MAX_NUMBER_DIGITS)
         {
           state = State::InvalidNumber;
         }
@@ -326,11 +315,13 @@ void updateStateMachine()
   {
     // TODO: Connect to real phone
     const char *number = convertNumberToCountryCode(dialedNumber);
-    DEBUG.print(F("Connecting to "));
+    DEBUG.print(F("\r\nConnecting to "));
     DEBUG.println(number);
     SIM800.print(F("ATD+ "));
     SIM800.print(number);
     SIM800.println(F(";"));
+    SIM800.println(F("AT+SIMTONE=1,425,1000,4000,60000")); // Ringing tone
+
     pollSIM800();
     state = State::Connected;
   }
@@ -460,14 +451,14 @@ void loop()
   duration += (stop - start);
   loopCount++;
 
-  if (millis() - prevMillis > 1000)
-  {
-    int avg = duration / loopCount;
-    DEBUG.print(state);
-    DEBUG.print(F("  "));
-    DEBUG.print(avg);
-    DEBUG.println(F(" us"));
-    prevMillis = millis();
-    duration = loopCount = 0;
-  }
+  // if (millis() - prevMillis > 1000)
+  // {
+  //   int avg = duration / loopCount;
+  //   DEBUG.print(state);
+  //   DEBUG.print(F("  "));
+  //   DEBUG.print(avg);
+  //   DEBUG.println(F(" us"));
+  //   prevMillis = millis();
+  //   duration = loopCount = 0;
+  // }
 }
