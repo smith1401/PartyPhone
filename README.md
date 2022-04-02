@@ -9,7 +9,7 @@ OK, enough of me rambling on. You are here for an electronics project!
 
 ## Project idea
 When my girlfriend's grandma tidied up her attic, she found an old rotary phone they used back in the 80s. As my girlfriend knows me very well she saved it from the trash and gave it to me saying "I know you love this old electronics stuff ..." (she really knows me well 😄).
-In this moment the idea was born to convert the old rotary phone's internals to a cell phone. One thing I always wanted to preserve were the looks and feels of an old rotary phone though. In the beginning this was just an idea but I really did not have an use-case for it.
+In this moment the idea was born to convert the old rotary phone's internals to a cell phone (bring internal to the 21st century). One thing I always wanted to preserve were the looks and feels of an old rotary phone though. In the beginning this was just an idea but I really did not have an use-case for it.
 
 The whole thing started to take shape when I was at a party where exatly those things described in the foreword happened and I thought to myself, 'How cool would it be if there were no smartphones at all and maybe just an old regular phone (a rotary phone) for emergencies and ordering a pizza for example'. Then immediately the old rotary phone of my girlfriend's grandparents popped into my mind 🙂
 
