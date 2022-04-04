@@ -300,17 +300,17 @@ void updateStateMachine()
         DEBUG.print(dialedNumber);
 
         // TODO: Number comparison
-        if (strncmp(dialedNumber, "06644386422", 11) == 0)
-        {
-          DEBUG.println();
-          state = State::Connecting;
-        }
-        else if (strncmp(dialedNumber, "12345", 5) == 0)
-        {
-          DEBUG.println();
-          state = State::Engaged;
-        }
-        else if (strlen(dialedNumber) > MAX_NUMBER_DIGITS)
+        // if (strncmp(dialedNumber, "06644386422", 11) == 0)
+        // {
+        //   DEBUG.println();
+        //   state = State::Connecting;
+        // }
+        // else if (strncmp(dialedNumber, "12345", 5) == 0)
+        // {
+        //   DEBUG.println();
+        //   state = State::Engaged;
+        // }
+        if (strlen(dialedNumber) > MAX_NUMBER_DIGITS)
         {
           state = State::InvalidNumber;
         }
@@ -460,14 +460,14 @@ void loop()
   duration += (stop - start);
   loopCount++;
 
-  if (millis() - prevMillis > 1000)
-  {
-    int avg = duration / loopCount;
-    DEBUG.print(state);
-    DEBUG.print(F("  "));
-    DEBUG.print(avg);
-    DEBUG.println(F(" us"));
-    prevMillis = millis();
-    duration = loopCount = 0;
-  }
+  // if (millis() - prevMillis > 1000)
+  // {
+  //   int avg = duration / loopCount;
+  //   DEBUG.print(state);
+  //   DEBUG.print(F("  "));
+  //   DEBUG.print(avg);
+  //   DEBUG.println(F(" us"));
+  //   prevMillis = millis();
+  //   duration = loopCount = 0;
+  // }
 }
