@@ -295,21 +295,9 @@ void updateStateMachine()
         // Add current digit dialed to number
         dialedNumber[currentDigit++] = (char)((char)pulseCount + '0');
         dialedNumber[currentDigit] = '\0';
-        // DEBUG.printf("\rNumber: '%s'", dialedNumber);
         DEBUG.print(F("\rNumber: "));
         DEBUG.print(dialedNumber);
 
-        // TODO: Number comparison
-        // if (strncmp(dialedNumber, "06644386422", 11) == 0)
-        // {
-        //   DEBUG.println();
-        //   state = State::Connecting;
-        // }
-        // else if (strncmp(dialedNumber, "12345", 5) == 0)
-        // {
-        //   DEBUG.println();
-        //   state = State::Engaged;
-        // }
         if (strlen(dialedNumber) > MAX_NUMBER_DIGITS)
         {
           state = State::InvalidNumber;
@@ -326,11 +314,13 @@ void updateStateMachine()
   {
     // TODO: Connect to real phone
     const char *number = convertNumberToCountryCode(dialedNumber);
-    DEBUG.print(F("Connecting to "));
+    DEBUG.print(F("\r\nConnecting to "));
     DEBUG.println(number);
     SIM800.print(F("ATD+ "));
     SIM800.print(number);
     SIM800.println(F(";"));
+    SIM800.println(F("AT+SIMTONE=1,425,1000,4000,60000")); // Ringing tone
+
     pollSIM800();
     state = State::Connected;
   }
