@@ -1,5 +1,5 @@
 # Arduino Rotary phone for "offline" parties
-
+An electronics/software project providing all the information about how to convert an old rotary phone into a modern cell phone.
 ## Foreword
 Who doesn't know it, you are at a party and everyone is checking their phones or swiping through their Instagram. I find it very annoying when people stop communicating and instead dive into the digital world.
 
