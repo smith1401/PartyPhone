@@ -118,6 +118,10 @@ void setup()
   SIM800.begin(57600);
   DEBUG.begin(57600);
 
+  delay(1000);
+
+  DEBUG.println(F("Start of Partyphone. Have fun :)"));
+
   // If the hook switch is LOW during startup, switch so serial-ping-pong mode
   if (hookSwitch.read() == LOW)
   {
@@ -140,17 +144,19 @@ void setup()
   // Initialize SIM800 module and get basic information
   SIM800.println(SIM800_HANDSHAKE_CMD); // Once the handshake test is successful, it will back to OK
   pollSIM800();
+  SIM800.println(SIM800_FACTORY_RESET); // sometimes the modle just stops working :/
+  pollSIM800();
   SIM800.println(SIM800_SIGNAL_QUALITY_CMD); // Signal quality test, value range is 0-31 , 31 is the best
   pollSIM800(true);
-  SIM800.println(SIM800_SIM_INFO_CMD); // Read SIM information to confirm whether the SIM is plugged
-  pollSIM800(true);
+  // SIM800.println(SIM800_SIM_INFO_CMD); // Read SIM information to confirm whether the SIM is plugged
+  // pollSIM800(true);
   SIM800.println(SIM800_REGISTERED_CMD); // Check whether it has registered in the network
   pollSIM800(true);
   SIM800.println(SIM800_BATTERY_STATUS_CMD);
   pollSIM800(true);
   SIM800.println(SIM800_DISABLE_RINGER_CMD);
   pollSIM800();
-  SIM800.println(SIM800_MIC_GAIN_CMD(2));
+  SIM800.println(SIM800_MIC_GAIN_CMD(5));
   pollSIM800(true);
 
   DEBUG.println(F("ready"));
@@ -316,7 +322,7 @@ void receiveSIM800(bool debug_out)
     parseSIM800response();
 
     if (debug_out)
-      DEBUG.println(sim800Buffer);
+      DEBUG.println(pSIM800);
 
     strcpy(sim800Buffer, "");
   }
