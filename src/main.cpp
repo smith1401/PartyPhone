@@ -65,10 +65,10 @@ char *pSIM800 = &sim800Buffer[0];
 
 char internationalNumberBuffer[MAX_NUMBER_DIGITS + 1];
 
-const char* convertNumberToCountryCode(const char * num)
+const char *convertNumberToCountryCode(const char *num)
 {
   memset(internationalNumberBuffer, 0, MAX_NUMBER_DIGITS + 1);
-  
+
   // Is it an international number
   if (strncmp(num, "00", 2) == 0)
   {
@@ -106,7 +106,7 @@ void startRinging()
 
   // Attach ticker for ringer on/off period
   ringerTask = timer.in(RINGER_ON_MS, [](void *) -> bool
-  { 
+                        { 
     // Cancel pinChangeTask and start new ringerTask
     timer.cancel(pinChangeTask);
     ringerTask = timer.in(RINGER_OFF_MS, [](void *) -> bool
@@ -119,8 +119,7 @@ void startRinging()
         return false;
     });
 
-    return false; 
-  });
+    return false; });
 }
 
 void callAnswered()
@@ -172,6 +171,17 @@ void parseSIM800response()
     DEBUG.println(F("Other end is busy!"));
     SIM800.println(F("AT+SIMTONE=1,425,500,500,300000"));
   }
+
+  found = strstr(sim800Buffer, "CME ERROR");
+  if (found != NULL)
+  {
+    state = State::Idle;
+    char *error = strtok(sim800Buffer, ":");
+    error = strtok(NULL, ":");
+
+    DEBUG.print(F("SIM800 responded with an error: "));
+    DEBUG.println(error);
+  }
 }
 
 void receiveSIM800()
@@ -191,7 +201,7 @@ void receiveSIM800()
   {
     *pSIM800 = '\0';
     pSIM800 = &sim800Buffer[0];
-    // DEBUG.println(sim800Buffer);
+    DEBUG.println(sim800Buffer);
     parseSIM800response();
     strcpy(sim800Buffer, "");
   }
@@ -200,7 +210,9 @@ void receiveSIM800()
 void pollSIM800()
 {
   uint32_t startPoll = millis();
-  while (!SIM800.available() && (millis() - startPoll) < SIM800_POLL_TIMOUT_MS) {}
+  while (!SIM800.available() && (millis() - startPoll) < SIM800_POLL_TIMOUT_MS)
+  {
+  }
   receiveSIM800();
 }
 
@@ -276,38 +288,39 @@ void updateStateMachine()
   case State::Dialling:
   {
     // If a pulse has been detected
-      if (numberSwitch.rose())
+    if (numberSwitch.rose())
+    {
+      pulseCount++;
+    }
+
+    // If the dial has returned to its initial position
+    if (dialSwitch.rose())
+    {
+      // Start new task to wait for no input in order to start a call
+      timer.cancel(startCallTask);
+      startCallTask = timer.in(START_CALL_DELAY_MS, [](void *)
+                               { state = State::Connecting; return false; });
+
+      // Zero == 10 pulses
+      if (pulseCount == 10)
+        pulseCount = 0;
+
+      // Add current digit dialed to number
+      dialedNumber[currentDigit++] = (char)((char)pulseCount + '0');
+      dialedNumber[currentDigit] = '\0';
+      // DEBUG.printf("\rNumber: '%s'", dialedNumber);
+      DEBUG.print(F("\rNumber: "));
+      DEBUG.print(dialedNumber);
+
+      if (strlen(dialedNumber) > MAX_NUMBER_DIGITS)
       {
-        pulseCount++;
+        state = State::InvalidNumber;
       }
-
-      // If the dial has returned to its initial position
-      if (dialSwitch.rose())
+      else
       {
-        // Start new task to wait for no input in order to start a call
-        timer.cancel(startCallTask);
-        startCallTask = timer.in(START_CALL_DELAY_MS, [](void *){ state = State::Connecting; return false;});
-
-        // Zero == 10 pulses
-        if (pulseCount == 10)
-          pulseCount = 0;
-
-        // Add current digit dialed to number
-        dialedNumber[currentDigit++] = (char)((char)pulseCount + '0');
-        dialedNumber[currentDigit] = '\0';
-        // DEBUG.printf("\rNumber: '%s'", dialedNumber);
-        DEBUG.print(F("\rNumber: "));
-        DEBUG.print(dialedNumber);
-
-        if (strlen(dialedNumber) > MAX_NUMBER_DIGITS)
-        {
-          state = State::InvalidNumber;
-        }
-        else
-        {
-          pulseCount = 0;
-        }
+        pulseCount = 0;
       }
+    }
   }
   break;
 
@@ -405,20 +418,19 @@ void setup()
     }
 
     DEBUG.println(F("Exit Serial mode."));
-
   }
 
   // DEBUG.println(__FILE__);
   // DEBUG.println(__DATE__);
   // DEBUG.println(__TIME__);
 
-  SIM800.println(F("AT")); //Once the handshake test is successful, it will back to OK
+  SIM800.println(F("AT")); // Once the handshake test is successful, it will back to OK
   pollSIM800();
-  SIM800.println(F("AT+CSQ")); //Signal quality test, value range is 0-31 , 31 is the best
+  SIM800.println(F("AT+CSQ")); // Signal quality test, value range is 0-31 , 31 is the best
   pollSIM800();
-  SIM800.println(F("AT+CCID")); //Read SIM information to confirm whether the SIM is plugged
+  SIM800.println(F("AT+CCID")); // Read SIM information to confirm whether the SIM is plugged
   pollSIM800();
-  SIM800.println(F("AT+CREG?")); //Check whether it has registered in the network
+  SIM800.println(F("AT+CREG?")); // Check whether it has registered in the network
   pollSIM800();
   SIM800.println(F("AT+CBC"));
   pollSIM800();
@@ -428,7 +440,6 @@ void setup()
 
   SIM800.println(F("AT+CMIC=0,2"));
   pollSIM800();
-  
 
   DEBUG.println(F("ready"));
 }
