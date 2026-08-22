@@ -38,6 +38,8 @@
 #define NUM_RINGS 1
 #define MAX_NUMBER_DIGITS 15
 #define LOCAL_COUNTRY_CODE "+43"
+// Worst case: country code + every dialed digit but the leading 0 + terminator
+#define INTERNATIONAL_NUMBER_BUFF_LEN (MAX_NUMBER_DIGITS + sizeof(LOCAL_COUNTRY_CODE))
 
 const uint8_t hook_pin = 3;
 const uint8_t dial_pin = 5;
@@ -83,7 +85,7 @@ uint8_t ringCount = 0;
 // Buffers
 char sim800Buffer[SIM800_AT_CMD_BUFF_LEN] = {0x00};
 char *pSIM800 = &sim800Buffer[0];
-char internationalNumberBuffer[MAX_NUMBER_DIGITS + 1];
+char internationalNumberBuffer[INTERNATIONAL_NUMBER_BUFF_LEN];
 
 // Prototypes
 const char *convertNumberToCountryCode(const char *num);
@@ -195,7 +197,7 @@ void loop()
 
 const char *convertNumberToCountryCode(const char *num)
 {
-  memset(internationalNumberBuffer, 0, MAX_NUMBER_DIGITS + 1);
+  memset(internationalNumberBuffer, 0, INTERNATIONAL_NUMBER_BUFF_LEN);
 
   // Is it an international number
   if (strncmp(num, "00", 2) == 0)
@@ -280,7 +282,8 @@ void parseSIM800response()
   }
   else if (found != NULL && state != State::Idle)
   {
-    SIM800.println(SIM800_ANSWER_CALL_CMD);
+    // Already busy with another call -> reject the incoming one
+    SIM800.println(SIM800_HANGUP_CALL_CMD);
   }
 
   found = strstr_P(sim800Buffer, (const char *)SIM800_RESP_NO_CARRIER);
@@ -304,7 +307,11 @@ void parseSIM800response()
   found = strstr(sim800Buffer, "CME ERROR");
   if (found != NULL)
   {
-    state = State::Idle;
+    // A failing command during a call (e.g. a tone command) must not silently
+    // abandon the call - the handset is off-hook and would never recover
+    if (state != State::Connected && state != State::Ringing)
+      state = State::Idle;
+
     char *error = strtok(sim800Buffer, ":");
     error = strtok(NULL, ":");
 
@@ -315,27 +322,27 @@ void parseSIM800response()
 
 void receiveSIM800(bool debug_out)
 {
-  int count = 0;
   while (SIM800.available())
   {
     char c = SIM800.read();
 
-    if (c != '\0')
+    // Keep one byte for the terminating '\0' - drop anything beyond that
+    if (c != '\0' && pSIM800 < &sim800Buffer[SIM800_AT_CMD_BUFF_LEN - 1])
       (*pSIM800++) = c;
-
-    count++;
   }
 
   if (sim800Buffer[0] != '\0')
   {
     *pSIM800 = '\0';
     pSIM800 = &sim800Buffer[0];
+
+    // Print before parsing - parsing may cut the buffer short (strtok)
+    if (debug_out)
+      DEBUG.println(sim800Buffer);
+
     parseSIM800response();
 
-    if (debug_out)
-      DEBUG.println(pSIM800);
-
-    strcpy(sim800Buffer, "");
+    sim800Buffer[0] = '\0';
   }
 }
 
@@ -434,18 +441,19 @@ void updateStateMachine()
       if (pulseCount == 10)
         pulseCount = 0;
 
-      // Add current digit dialed to number
-      dialedNumber[currentDigit++] = (char)((char)pulseCount + '0');
-      dialedNumber[currentDigit] = '\0';
-      DEBUG.print(F("\rNumber: "));
-      DEBUG.print(dialedNumber);
-
-      if (strlen(dialedNumber) > MAX_NUMBER_DIGITS)
+      // Too many digits dialed -> the number cannot be valid
+      if (currentDigit >= MAX_NUMBER_DIGITS)
       {
         state = State::InvalidNumber;
       }
       else
       {
+        // Add current digit dialed to number
+        dialedNumber[currentDigit++] = (char)((char)pulseCount + '0');
+        dialedNumber[currentDigit] = '\0';
+        DEBUG.print(F("\rNumber: "));
+        DEBUG.print(dialedNumber);
+
         pulseCount = 0;
       }
     }
@@ -456,6 +464,11 @@ void updateStateMachine()
   {
     // TODO: Connect to real phone
     const char *number = convertNumberToCountryCode(dialedNumber);
+
+    // The number could not be converted - do not dial an empty number
+    if (state == State::InvalidNumber)
+      break;
+
     DEBUG.print(F("\r\nConnecting to "));
     DEBUG.println(number);
     SIM800.print(SIM800_DIAL_NUMBER_CMD);
