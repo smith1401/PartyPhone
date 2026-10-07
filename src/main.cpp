@@ -38,6 +38,10 @@
 #define NUM_RINGS 1
 #define MAX_NUMBER_DIGITS 15
 #define LOCAL_COUNTRY_CODE "+43"
+// Emergency/service numbers (112, 122, 133, 140, 141, 144, ...) are three digits starting
+// with a 1 and are dialled as they are, without a trunk prefix or country code
+#define EMERGENCY_NUMBER_LEN 3
+#define EMERGENCY_NUMBER_PREFIX '1'
 // Worst case: country code + every dialed digit but the leading 0 + terminator
 #define INTERNATIONAL_NUMBER_BUFF_LEN (MAX_NUMBER_DIGITS + sizeof(LOCAL_COUNTRY_CODE))
 
@@ -180,8 +184,13 @@ const char *convertNumberToCountryCode(const char *num)
 {
   memset(internationalNumberBuffer, 0, INTERNATIONAL_NUMBER_BUFF_LEN);
 
+  // Is it an emergency number
+  if (num[0] == EMERGENCY_NUMBER_PREFIX && strlen(num) == EMERGENCY_NUMBER_LEN)
+  {
+    strcat(internationalNumberBuffer, num);
+  }
   // Is it an international number
-  if (strncmp(num, "00", 2) == 0)
+  else if (strncmp(num, "00", 2) == 0)
   {
     strcat(internationalNumberBuffer, "+");
     strcat(internationalNumberBuffer, &num[2]);
