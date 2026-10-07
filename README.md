@@ -57,9 +57,44 @@ The firmware has been developed in Arduino C++, again to keep things simple for 
 
 The main firmware structure is oriented towards a finite-state-machine approach. I found a very nice [tutorial](https://www.youtube.com/watch?v=cZ2rHqBXO1s&t=368s) by a YouTube channel called [Playful Technology](https://www.youtube.com/c/PlayfulTechnology/featured). He uses an old rotary phone as a prop in an Escape Room game. Definitely worth a watch 🙂!
 
-For an overview I created a state diagram of the main program flow (I tried to use [mermaid](https://github.com/mermaid-js/mermaid) for the first time, this is why it looks a bit messy 😄). 
+For an overview, here is the state diagram of the main program flow. Green states are active calls, red is a failed call attempt. Putting the handset back on the hook always returns the phone to `Idle`.
 
-![state-diagram](docs/state_diagram.png)
+```mermaid
+stateDiagram-v2
+    direction TB
+
+    [*] --> Idle
+
+    state "Handset lifted" as OffHook {
+        direction TB
+        Dialtone --> Dialling: Dial turned
+        Dialling --> Connecting: No input for 4 s
+        Connecting --> Connected: Dial command sent
+        state "Call failed<br/>(InvalidNumber / Engaged)" as Failed
+        Dialling --> Failed: Too many digits
+        Connecting --> Failed: Number not dialable
+        Connected --> Failed: Busy
+    }
+
+    Idle --> Dialtone: Handset lifted
+    Idle --> Ringing: Incoming call
+    Ringing --> Idle: Caller hung up
+    Ringing --> Connected: Handset lifted
+    Connected --> Idle: Other end hung up
+    Failed --> Idle: Tone played
+    OffHook --> Idle: Handset replaced
+
+    classDef call fill:#d8f3dc,stroke:#2d6a4f,color:#1b4332
+    classDef problem fill:#fde2e4,stroke:#c9184a,color:#590d22
+    class Ringing,Connected call
+    class Failed problem
+```
+
+A few details that are not visible in the diagram:
+
+* Every dialed digit restarts the 4 s timer (`START_CALL_DELAY_MS`) that starts the call, so you can take your time between digits.
+* A failing AT command (`ERROR`, `+CME ERROR`) before the call is set up also returns the phone to `Idle`.
+* `Call failed` covers the two firmware states `InvalidNumber` (number too long or not dialable) and `Engaged` (busy signal). Both play a tone or print a message and then fall back to `Idle`.
 
 The main Arduino ```loop()``` consists of 4 simple update routines which check the switches, update timers, receive data from the SIM800 module and update the state machine.
 
