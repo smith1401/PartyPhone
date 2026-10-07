@@ -91,9 +91,9 @@ char internationalNumberBuffer[INTERNATIONAL_NUMBER_BUFF_LEN];
 const char *convertNumberToCountryCode(const char *num);
 bool ring(void *);
 void startRinging();
-void callAnswered();
+void stopRinging();
 void parseSIM800response();
-void receiveSIM800(bool debug_out = false);
+bool receiveSIM800(bool debug_out = false);
 void pollSIM800(bool debug_out = false);
 void updateSwitches();
 void updateTickers();
@@ -148,6 +148,10 @@ void setup()
   pollSIM800();
   SIM800.println(SIM800_FACTORY_RESET); // sometimes the modle just stops working :/
   pollSIM800();
+  SIM800.println(SIM800_ECHO_OFF_CMD); // echoed commands would only add noise to the parser
+  pollSIM800();
+  SIM800.println(SIM800_VERBOSE_ERRORS_CMD); // report "+CME ERROR: <text>" instead of a bare "ERROR"
+  pollSIM800();
   SIM800.println(SIM800_SIGNAL_QUALITY_CMD); // Signal quality test, value range is 0-31 , 31 is the best
   pollSIM800(true);
   // SIM800.println(SIM800_SIM_INFO_CMD); // Read SIM information to confirm whether the SIM is plugged
@@ -164,35 +168,12 @@ void setup()
   DEBUG.println(F("ready"));
 }
 
-State prevState = State::Idle;
-uint32_t prevMillis = millis();
-uint32_t duration = 0;
-int loopCount = 0;
-
 void loop()
 {
-  uint32_t start = micros();
-
   updateSwitches();
   updateTickers();
   updateSIM800();
   updateStateMachine();
-
-  uint32_t stop = micros();
-  duration += (stop - start);
-  loopCount++;
-
-  // Averge rate is above 10kHz - fast enough!
-  // if (millis() - prevMillis > 1000)
-  // {
-  //   int avg = duration / loopCount;
-  //   DEBUG.print(state);
-  //   DEBUG.print(F("  "));
-  //   DEBUG.print(avg);
-  //   DEBUG.println(F(" us"));
-  //   prevMillis = millis();
-  //   duration = loopCount = 0;
-  // }
 }
 
 const char *convertNumberToCountryCode(const char *num)
@@ -253,13 +234,22 @@ void startRinging()
     return false; });
 }
 
-void callAnswered()
+void stopRinging()
 {
   timer.cancel();
   ringCount = 0;
-  state = State::Idle;
 }
 
+// Set by parseSIM800response() when a line terminates a command ("OK" / "ERROR")
+bool finalResponseSeen = false;
+
+// Compare the received line with a response stored in flash
+static bool lineIs(const __FlashStringHelper *response)
+{
+  return strcmp_P(sim800Buffer, (const char *)response) == 0;
+}
+
+// Parses ONE complete line (without line ending) stored in sim800Buffer
 void parseSIM800response()
 {
   /*
@@ -274,85 +264,106 @@ void parseSIM800response()
   PROCEEDING 	  An AT command is being processed
   */
 
-  // Check if someone is calling
-  char *found = strstr_P(sim800Buffer, (const char *)SIM800_RESP_RING);
-  if (found != NULL && state == State::Idle)
+  if (lineIs(SIM800_RESP_OK))
   {
-    incomingCall = true;
+    finalResponseSeen = true;
   }
-  else if (found != NULL && state != State::Idle)
+  else if (lineIs(SIM800_RESP_RING))
   {
-    // Already busy with another call -> reject the incoming one
-    SIM800.println(SIM800_HANGUP_CALL_CMD);
+    // RING is repeated every few seconds while the call is ringing
+    if (state == State::Idle)
+    {
+      incomingCall = true;
+    }
+    else if (state != State::Ringing)
+    {
+      // Already busy with another call -> reject the incoming one
+      SIM800.println(SIM800_HANGUP_CALL_CMD);
+    }
   }
-
-  found = strstr_P(sim800Buffer, (const char *)SIM800_RESP_NO_CARRIER);
-  if (found != NULL && (state == State::Ringing || state == State::Connected))
+  else if (lineIs(SIM800_RESP_NO_CARRIER))
   {
-    timer.cancel();
-    state = State::Idle;
-    DEBUG.println(F("Other end hung up!"));
-    SIM800.println(SIM800_HUNG_UP_TONE);
-    incomingCall = false;
+    if (state == State::Ringing || state == State::Connected)
+    {
+      timer.cancel();
+      DEBUG.println(F("Other end hung up!"));
+      // Only play the tone when someone is listening
+      if (state == State::Connected)
+        SIM800.println(SIM800_HUNG_UP_TONE);
+      state = State::Idle;
+      incomingCall = false;
+    }
   }
-
-  found = strstr_P(sim800Buffer, (const char *)SIM800_RESP_BUSY);
-  if (found != NULL)
+  else if (lineIs(SIM800_RESP_BUSY))
   {
     state = State::Engaged;
     DEBUG.println(F("Other end is busy!"));
     SIM800.println(SIM800_BUSY_TONE);
   }
-
-  found = strstr(sim800Buffer, "CME ERROR");
-  if (found != NULL)
+  else if (lineIs(SIM800_RESP_NO_DIALTONE) || lineIs(SIM800_RESP_NO_ANSWER) ||
+           strstr_P(sim800Buffer, (const char *)SIM800_RESP_ERROR) != NULL)
   {
+    finalResponseSeen = true;
+
     // A failing command during a call (e.g. a tone command) must not silently
     // abandon the call - the handset is off-hook and would never recover
     if (state != State::Connected && state != State::Ringing)
       state = State::Idle;
 
-    char *error = strtok(sim800Buffer, ":");
-    error = strtok(NULL, ":");
-
     DEBUG.print(F("SIM800 responded with an error: "));
-    DEBUG.println(error);
+    const char *error = strchr(sim800Buffer, ':');
+    DEBUG.println(error != NULL ? error + 1 : sim800Buffer);
   }
 }
 
-void receiveSIM800(bool debug_out)
+// Collects incoming bytes and parses every complete line.
+// Returns true if at least one complete line has been processed.
+bool receiveSIM800(bool debug_out)
 {
+  bool lineProcessed = false;
+
   while (SIM800.available())
   {
     char c = SIM800.read();
 
-    // Keep one byte for the terminating '\0' - drop anything beyond that
-    if (c != '\0' && pSIM800 < &sim800Buffer[SIM800_AT_CMD_BUFF_LEN - 1])
+    if (c == '\n')
+    {
+      // Terminate the line (and drop the trailing '\r') - empty lines are ignored
+      if (pSIM800 > &sim800Buffer[0] && *(pSIM800 - 1) == '\r')
+        pSIM800--;
+      *pSIM800 = '\0';
+
+      if (sim800Buffer[0] != '\0')
+      {
+        if (debug_out)
+          DEBUG.println(sim800Buffer);
+
+        parseSIM800response();
+        lineProcessed = true;
+      }
+
+      pSIM800 = &sim800Buffer[0];
+    }
+    else if (c != '\0' && pSIM800 < &sim800Buffer[SIM800_AT_CMD_BUFF_LEN - 1])
+    {
+      // Keep one byte for the terminating '\0' - drop anything beyond that
       (*pSIM800++) = c;
+    }
   }
 
-  if (sim800Buffer[0] != '\0')
-  {
-    *pSIM800 = '\0';
-    pSIM800 = &sim800Buffer[0];
-
-    // Print before parsing - parsing may cut the buffer short (strtok)
-    if (debug_out)
-      DEBUG.println(sim800Buffer);
-
-    parseSIM800response();
-
-    sim800Buffer[0] = '\0';
-  }
+  return lineProcessed;
 }
 
+// Waits for the response to a command: returns on "OK"/"ERROR" or after the timeout
 void pollSIM800(bool debug_out)
 {
+  finalResponseSeen = false;
+
   uint32_t startPoll = millis();
-  while (!SIM800.available() && (millis() - startPoll) < SIM800_POLL_TIMOUT_MS)
+  while (!finalResponseSeen && (millis() - startPoll) < SIM800_POLL_TIMOUT_MS)
   {
+    receiveSIM800(debug_out);
   }
-  receiveSIM800(debug_out);
 }
 
 void updateSwitches()
@@ -369,10 +380,7 @@ void updateTickers()
 
 void updateSIM800()
 {
-  if (SIM800.available())
-  {
-    receiveSIM800();
-  }
+  receiveSIM800();
 }
 
 void updateStateMachine()
@@ -423,6 +431,12 @@ void updateStateMachine()
 
   case State::Dialling:
   {
+    // The user is turning the dial again -> do not start the call yet
+    if (dialSwitch.fell())
+    {
+      timer.cancel(startCallTask);
+    }
+
     // If a pulse has been detected
     if (numberSwitch.rose())
     {
@@ -435,7 +449,7 @@ void updateStateMachine()
       // Start new task to wait for no input in order to start a call
       timer.cancel(startCallTask);
       startCallTask = timer.in(START_CALL_DELAY_MS, [](void *)
-                               { state = State::Connecting; return false; });
+                               { if (state == State::Dialling) state = State::Connecting; return false; });
 
       // Zero == 10 pulses
       if (pulseCount == 10)
@@ -444,6 +458,8 @@ void updateStateMachine()
       // Too many digits dialed -> the number cannot be valid
       if (currentDigit >= MAX_NUMBER_DIGITS)
       {
+        timer.cancel(startCallTask);
+        pulseCount = 0;
         state = State::InvalidNumber;
       }
       else
@@ -474,10 +490,14 @@ void updateStateMachine()
     SIM800.print(SIM800_DIAL_NUMBER_CMD);
     SIM800.print(number);
     SIM800.println(F(";"));
-    SIM800.println(SIM800_RINGING_TONE); // Ringing tone
-
     pollSIM800();
-    state = State::Connected;
+
+    // A failed dial command resets the state - do not override it
+    if (state == State::Connecting)
+    {
+      SIM800.println(SIM800_RINGING_TONE); // Ringing tone
+      state = State::Connected;
+    }
   }
   break;
 
@@ -504,6 +524,7 @@ void updateStateMachine()
 
     if (hookSwitch.fell())
     {
+      stopRinging(); // the bell must not keep ringing during the call
       state = State::Connected;
       SIM800.println(SIM800_ANSWER_CALL_CMD);
       DEBUG.println(F("Call answered!"));
